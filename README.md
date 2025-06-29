@@ -23,7 +23,7 @@
 ### 1. **Clone & Setup**
 
 ```sh
-git clone https://github.com/your-username/kafka-lite.git
+git clone https://github.com/rohankumardubey/kafka-lite.git
 cd kafka-lite
 go mod init kafka-lite
 go mod tidy
