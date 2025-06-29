@@ -108,6 +108,52 @@ func (b *Broker) consumeStreamHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (b *Broker) createTopicHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Topic string `json:"topic"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Topic == "" {
+		http.Error(w, "Topic name required", http.StatusBadRequest)
+		return
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if _, exists := b.topics[req.Topic]; exists {
+		http.Error(w, "Topic already exists", http.StatusConflict)
+		return
+	}
+
+	b.topics[req.Topic] = []string{}
+	// Create empty log file for the topic
+	file, err := os.OpenFile(b.logDir+"/"+req.Topic+".log", os.O_CREATE|os.O_RDWR, 0644)
+	if err == nil {
+		file.Close()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "created"})
+}
+
+func (b *Broker) listTopicsHandler(w http.ResponseWriter, r *http.Request) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	var topicNames []string
+	for topic := range b.topics {
+		topicNames = append(topicNames, topic)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string][]string{
+		"topics": topicNames,
+	})
+}
+
 func runBroker() {
 	// killing any old instance on port 8080
 	killPort8080()
@@ -118,6 +164,8 @@ func runBroker() {
 	}
 	http.HandleFunc("/produce", broker.produceHandler)
 	http.HandleFunc("/consume/stream", broker.consumeStreamHandler)
+	http.HandleFunc("/create-topic", broker.createTopicHandler)
+	http.HandleFunc("/list-topics", broker.listTopicsHandler)
 	fmt.Println("Broker running on :8080")
 	fmt.Println("Press Ctrl+C to stop.")
 	err = http.ListenAndServe(":8080", nil)
