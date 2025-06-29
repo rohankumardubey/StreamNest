@@ -3,7 +3,7 @@
 [![Go](https://img.shields.io/badge/Go-1.19+-00ADD8?logo=go)](https://golang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> 🚀 A minimal, educational, **Kafka-inspired message streaming system** in Go – all components in one file!
+> 🚀 A minimal, **Kafka-inspired message streaming system** in Go – standalone binary!
 
 ---
 
@@ -48,13 +48,43 @@ go build -o kafka-lite kafka-lite.go
 ./kafka-lite consumer
 ```
 
+### 5. 📝 **Topic Management via API**
+
+**Create a Topic : You can explicitly create a topic with a POST request.**
+```sh
+curl -X POST -H "Content-Type: application/json" -d '{"topic":"mytopic"}' http://localhost:8080/create-topic
+```
+
+**Example response:**
+```sh
+{"status":"created"}
+```
+
+**If the topic already exists:**
+```sh
+Topic already exists
+```
+
+### 6. **List All Topics**
+**You can list all existing topics with a GET request:**
+```sh
+curl http://localhost:8080/list-topics
+```
+
+**Example response:**
+```sh
+{"topics":["test","chat","sports"]}
+```
+
+
+---
 
 ## 🏗️ Roadmap
 
 - [ ] Multi-broker clustering
 - [ ] Replication and fault tolerance
 - [ ] Consumer groups
-- [ ] Topic creation via API
+- [x] Topic creation via API
 - [ ] Metrics and monitoring
 
 ---
