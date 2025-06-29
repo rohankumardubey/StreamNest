@@ -36,25 +36,18 @@ lsof -ti :8080 | xargs kill -9
 ```
 
 
-### 3. **Run the Broker**
+### 3. **Build a binary**
 ```sh
-go run broker.go
-Broker starts on localhost:8080.
+go build -o kafka-lite kafka-lite.go
 ```
 
-### 4. **Start a Producer**
+### 4. **Start the broker , Producer & consumer in separate terminals**
 ```sh
-go run kafka-lite.go producer
-Enter topic: test
-Producer for topic 'test' - type messages, Enter to send, 'exit' to quit.
+./kafka-lite broker
+./kafka-lite producer
+./kafka-lite consumer
 ```
 
-### 5. **Start a Consumer**
-```sh
-go run consumer.go
-Enter topic to subscribe: test
-Consumer for topic 'test' - Waiting for messages...
-```
 
 ## 🏗️ Roadmap
 
