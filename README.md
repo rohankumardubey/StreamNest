@@ -81,10 +81,11 @@ curl http://localhost:8080/list-topics
 
 ## 🏗️ Roadmap
 
+- [x] Topic creation via API
+- [ ] Schema Registry
 - [ ] Multi-broker clustering
 - [ ] Replication and fault tolerance
 - [ ] Consumer groups
-- [x] Topic creation via API
 - [ ] Metrics and monitoring
 
 ---
