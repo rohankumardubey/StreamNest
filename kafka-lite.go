@@ -16,16 +16,20 @@ import (
 	"time"
 )
 
-// broker
 type Broker struct {
-	mu     sync.Mutex
-	topics map[string][]string
-	logDir string
+	mu      sync.Mutex
+	topics  map[string][]string   // topic -> messages
+	schemas map[string]string     // topic -> JSON schema (as string)
+	logDir  string
 }
 
 func NewBroker(logDir string) (*Broker, error) {
 	os.MkdirAll(logDir, 0755)
-	b := &Broker{topics: make(map[string][]string), logDir: logDir}
+	b := &Broker{
+		topics:  make(map[string][]string),
+		schemas: make(map[string]string),
+		logDir:  logDir,
+	}
 	// Load messages from logs (optional, for persistence across restarts)
 	files, _ := os.ReadDir(logDir)
 	for _, f := range files {
@@ -46,25 +50,66 @@ func NewBroker(logDir string) (*Broker, error) {
 	return b, nil
 }
 
-// Handles POST /produce
+// kill any process on port 8080
+func killPort8080() {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin", "linux":
+		fmt.Println("Killing any existing process on port 8080...")
+		cmd = exec.Command("bash", "-c", "lsof -ti :8080 | xargs kill -9")
+	case "windows":
+		fmt.Println("Killing any existing process on port 8080 (Windows)...")
+		cmd = exec.Command("powershell", "-Command", "Get-Process -Id (Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess | Stop-Process -Force")
+	default:
+		fmt.Println("OS not recognized; skipping port kill.")
+		return
+	}
+	cmd.Run()
+}
+
+
+// POST /produce
 func (b *Broker) produceHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Topic   string `json:"topic"`
 		Message string `json:"message"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), 400)
+		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 	if req.Topic == "" {
 		http.Error(w, "topic required", 400)
 		return
 	}
+
+	b.mu.Lock()
+	schema, hasSchema := b.schemas[req.Topic]
+	b.mu.Unlock()
+
+	// Schema enforcement Json
+	if hasSchema {
+		var msgObj map[string]interface{}
+		var schemaObj map[string]interface{}
+		err1 := json.Unmarshal([]byte(req.Message), &msgObj)
+		err2 := json.Unmarshal([]byte(schema), &schemaObj)
+		if err1 != nil || err2 != nil {
+			http.Error(w, "Invalid JSON or schema", http.StatusBadRequest)
+			return
+		}
+		for k := range schemaObj {
+			if _, ok := msgObj[k]; !ok {
+				http.Error(w, "Message missing required field: "+k, http.StatusBadRequest)
+				return
+			}
+		}
+	}
+
 	b.mu.Lock()
 	offset := len(b.topics[req.Topic])
 	b.topics[req.Topic] = append(b.topics[req.Topic], req.Message)
 	b.mu.Unlock()
-	// Append to file
+
 	file, err := os.OpenFile(b.logDir+"/"+req.Topic+".log", os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
 	if err == nil {
 		file.WriteString(req.Message + "\n")
@@ -74,7 +119,7 @@ func (b *Broker) produceHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]int{"offset": offset})
 }
 
-// Handles GET /consume/stream
+// GET /consume/stream
 func (b *Broker) consumeStreamHandler(w http.ResponseWriter, r *http.Request) {
 	topic := r.URL.Query().Get("topic")
 	offsetStr := r.URL.Query().Get("offset")
@@ -98,7 +143,7 @@ func (b *Broker) consumeStreamHandler(w http.ResponseWriter, r *http.Request) {
 			if offset < len(msgs) {
 				msg := msgs[offset]
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]any{
+				json.NewEncoder(w).Encode(map[string]interface{}{
 					"offset":  offset,
 					"message": msg,
 				})
@@ -108,6 +153,7 @@ func (b *Broker) consumeStreamHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// POST /create-topic
 func (b *Broker) createTopicHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Topic string `json:"topic"`
@@ -139,24 +185,47 @@ func (b *Broker) createTopicHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "created"})
 }
 
+// GET /list-topics
 func (b *Broker) listTopicsHandler(w http.ResponseWriter, r *http.Request) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-
 	var topicNames []string
 	for topic := range b.topics {
 		topicNames = append(topicNames, topic)
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string][]string{
 		"topics": topicNames,
 	})
 }
 
+// POST /register-schema
+func (b *Broker) registerSchemaHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Topic  string `json:"topic"`
+		Schema string `json:"schema"` // raw JSON schema as string
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.Topic == "" || req.Schema == "" {
+		http.Error(w, "Topic and schema required", http.StatusBadRequest)
+		return
+	}
+
+	b.mu.Lock()
+	b.schemas[req.Topic] = req.Schema
+	b.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "schema registered"})
+}
+
+// Broker
 func runBroker() {
-	// killing any old instance on port 8080
 	killPort8080()
+
 	broker, err := NewBroker("logs")
 	if err != nil {
 		fmt.Println("Failed to start broker:", err)
@@ -166,6 +235,8 @@ func runBroker() {
 	http.HandleFunc("/consume/stream", broker.consumeStreamHandler)
 	http.HandleFunc("/create-topic", broker.createTopicHandler)
 	http.HandleFunc("/list-topics", broker.listTopicsHandler)
+	http.HandleFunc("/register-schema", broker.registerSchemaHandler)
+
 	fmt.Println("Broker running on :8080")
 	fmt.Println("Press Ctrl+C to stop.")
 	err = http.ListenAndServe(":8080", nil)
@@ -213,7 +284,7 @@ func runProducer() {
 	fmt.Println("Producer exited.")
 }
 
-// consumer
+// Consumer
 func runConsumer() {
 	fmt.Print("Enter topic to subscribe: ")
 	scanner := bufio.NewScanner(os.Stdin)
@@ -261,24 +332,6 @@ func runConsumer() {
 	}
 }
 
-func killPort8080() {
-	var cmd *exec.Cmd
-
-	switch runtime.GOOS {
-	case "darwin", "linux":
-		fmt.Println("Killing any existing process on port 8080...")
-		cmd = exec.Command("bash", "-c", "lsof -ti :8080 | xargs kill -9")
-	case "windows":
-		fmt.Println("Killing any existing process on port 8080 (Windows)...")
-		// This will kill the first process using port 8080 on Windows
-		cmd = exec.Command("powershell", "-Command", "Get-Process -Id (Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess | Stop-Process -Force")
-	default:
-		fmt.Println("OS not recognized; skipping port kill.")
-		return
-	}
-
-	cmd.Run() // Ignore errors if nothing is running
-}
 
 func main() {
 	if len(os.Args) < 2 {
