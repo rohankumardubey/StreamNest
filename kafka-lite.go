@@ -1,355 +1,324 @@
-package main
+// package main
 
-import (
-	"bufio"
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"os"
-	"os/exec"
-	"runtime"
-	"strconv"
-	"strings"
-	"sync"
-	"time"
-)
+// import (
+// 	"bufio"
+// 	"bytes"
+// 	"encoding/json"
+// 	"flag"
+// 	"fmt"
+// 	"io"
+// 	"net/http"
+// 	"os"
+// 	"strconv"
+// 	"strings"
+// 	"sync"
+// 	"time"
+// )
 
-type Broker struct {
-	mu      sync.Mutex
-	topics  map[string][]string   // topic -> messages
-	schemas map[string]string     // topic -> JSON schema (as string)
-	logDir  string
-}
+// type PartitionInfo struct {
+// 	Partition int    `json:"partition"`
+// 	Broker    string `json:"broker"`
+// }
 
-func NewBroker(logDir string) (*Broker, error) {
-	os.MkdirAll(logDir, 0755)
-	b := &Broker{
-		topics:  make(map[string][]string),
-		schemas: make(map[string]string),
-		logDir:  logDir,
-	}
-	// Load messages from logs (optional, for persistence across restarts)
-	files, _ := os.ReadDir(logDir)
-	for _, f := range files {
-		if f.IsDir() {
-			continue
-		}
-		topic := strings.TrimSuffix(f.Name(), ".log")
-		fp, err := os.Open(logDir + "/" + f.Name())
-		if err != nil {
-			continue
-		}
-		scan := bufio.NewScanner(fp)
-		for scan.Scan() {
-			b.topics[topic] = append(b.topics[topic], scan.Text())
-		}
-		fp.Close()
-	}
-	return b, nil
-}
+// type TopicMetadata struct {
+// 	Partitions []PartitionInfo `json:"partitions"`
+// }
 
-// kill any process on port 8080
-func killPort8080() {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin", "linux":
-		fmt.Println("Killing any existing process on port 8080...")
-		cmd = exec.Command("bash", "-c", "lsof -ti :8080 | xargs kill -9")
-	case "windows":
-		fmt.Println("Killing any existing process on port 8080 (Windows)...")
-		cmd = exec.Command("powershell", "-Command", "Get-Process -Id (Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess | Stop-Process -Force")
-	default:
-		fmt.Println("OS not recognized; skipping port kill.")
-		return
-	}
-	cmd.Run()
-}
+// type MetadataResponse struct {
+// 	Topics map[string]TopicMetadata `json:"topic_partitions"`
+// }
 
+// type Broker struct {
+// 	ID        int
+// 	Address   string
+// 	Peers     []string
+// 	Port      int
+// 	topics    map[string][][]string
+// 	ownership map[string][]string
+// 	mu        sync.Mutex
+// }
 
-// POST /produce
-func (b *Broker) produceHandler(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Topic   string `json:"topic"`
-		Message string `json:"message"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-	if req.Topic == "" {
-		http.Error(w, "topic required", 400)
-		return
-	}
+// func NewBroker(id, port int, peers []string) *Broker {
+// 	addr := fmt.Sprintf("localhost:%d", port)
+// 	return &Broker{
+// 		ID:        id,
+// 		Address:   addr,
+// 		Peers:     peers,
+// 		Port:      port,
+// 		topics:    make(map[string][][]string),
+// 		ownership: make(map[string][]string),
+// 	}
+// }
 
-	b.mu.Lock()
-	schema, hasSchema := b.schemas[req.Topic]
-	b.mu.Unlock()
+// type createTopicReq struct {
+// 	Topic         string   `json:"topic"`
+// 	NumPartitions int      `json:"partitions"`
+// 	Owners        []string `json:"owners,omitempty"`
+// }
 
-	// Schema enforcement Json
-	if hasSchema {
-		var msgObj map[string]interface{}
-		var schemaObj map[string]interface{}
-		err1 := json.Unmarshal([]byte(req.Message), &msgObj)
-		err2 := json.Unmarshal([]byte(schema), &schemaObj)
-		if err1 != nil || err2 != nil {
-			http.Error(w, "Invalid JSON or schema", http.StatusBadRequest)
-			return
-		}
-		for k := range schemaObj {
-			if _, ok := msgObj[k]; !ok {
-				http.Error(w, "Message missing required field: "+k, http.StatusBadRequest)
-				return
-			}
-		}
-	}
+// // POST /create-topic
+// func (b *Broker) createTopicHandler(w http.ResponseWriter, r *http.Request) {
+// 	var req createTopicReq
+// 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+// 		http.Error(w, "invalid request", 400)
+// 		return
+// 	}
+// 	if req.Topic == "" || req.NumPartitions <= 0 {
+// 		http.Error(w, "topic+positive partitions required", 400)
+// 		return
+// 	}
+// 	// Compute owners list ONCE
+// 	all := append([]string{b.Address}, b.Peers...)
+// 	owners := make([]string, req.NumPartitions)
+// 	for i := 0; i < req.NumPartitions; i++ {
+// 		owners[i] = all[i%len(all)]
+// 	}
+// 	// Install locally
+// 	b.createTopicWithOwners(req.Topic, owners)
+// 	fmt.Printf("[Broker %d] Created topic '%s' owners=%v\n", b.ID, req.Topic, owners)
 
-	b.mu.Lock()
-	offset := len(b.topics[req.Topic])
-	b.topics[req.Topic] = append(b.topics[req.Topic], req.Message)
-	b.mu.Unlock()
+// 	// Synchronously propagate to peers
+// 	prop := createTopicReq{Topic: req.Topic, Owners: owners}
+// 	body := mustJSON(prop)
+// 	for _, peer := range b.Peers {
+// 		if peer == b.Address {
+// 			continue
+// 		}
+// 		url := "http://" + peer + "/internal-create-topic"
+// 		resp, err := http.Post(url, "application/json", bytes.NewBuffer(body))
+// 		if err != nil {
+// 			fmt.Printf("[Broker %d] Propagate to %s failed: %v\n", b.ID, peer, err)
+// 			continue
+// 		}
+// 		resp.Body.Close()
+// 	}
+// 	w.Header().Set("Content-Type", "application/json")
+// 	json.NewEncoder(w).Encode(map[string]string{"status": "created"})
+// }
 
-	file, err := os.OpenFile(b.logDir+"/"+req.Topic+".log", os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
-	if err == nil {
-		file.WriteString(req.Message + "\n")
-		file.Close()
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"offset": offset})
-}
+// // POST /internal-create-topic
+// func (b *Broker) internalCreateTopicHandler(w http.ResponseWriter, r *http.Request) {
+// 	var req createTopicReq
+// 	json.NewDecoder(r.Body).Decode(&req)
+// 	b.mu.Lock()
+// 	defer b.mu.Unlock()
+// 	if _, ok := b.topics[req.Topic]; ok {
+// 		w.WriteHeader(200)
+// 		return
+// 	}
+// 	b.ownership[req.Topic] = req.Owners
+// 	partitions := make([][]string, len(req.Owners))
+// 	for i := range partitions {
+// 		partitions[i] = []string{}
+// 	}
+// 	b.topics[req.Topic] = partitions
+// 	fmt.Printf("[Broker %d] (internal) Created topic '%s' owners=%v\n", b.ID, req.Topic, req.Owners)
+// 	w.WriteHeader(200)
+// }
 
-// GET /consume/stream
-func (b *Broker) consumeStreamHandler(w http.ResponseWriter, r *http.Request) {
-	topic := r.URL.Query().Get("topic")
-	offsetStr := r.URL.Query().Get("offset")
-	offset, err := strconv.Atoi(offsetStr)
-	if topic == "" || err != nil || offset < 0 {
-		http.Error(w, "invalid topic or offset", 400)
-		return
-	}
-	timeout := time.After(10 * time.Second)
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-timeout:
-			http.Error(w, "timeout", http.StatusRequestTimeout)
-			return
-		case <-ticker.C:
-			b.mu.Lock()
-			msgs := b.topics[topic]
-			b.mu.Unlock()
-			if offset < len(msgs) {
-				msg := msgs[offset]
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"offset":  offset,
-					"message": msg,
-				})
-				return
-			}
-		}
-	}
-}
+// func (b *Broker) createTopicWithOwners(topic string, owners []string) {
+// 	b.mu.Lock()
+// 	defer b.mu.Unlock()
+// 	b.ownership[topic] = owners
+// 	partitions := make([][]string, len(owners))
+// 	for i := range partitions {
+// 		partitions[i] = []string{}
+// 	}
+// 	b.topics[topic] = partitions
+// }
 
-// POST /create-topic
-func (b *Broker) createTopicHandler(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Topic string `json:"topic"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-	if req.Topic == "" {
-		http.Error(w, "Topic name required", http.StatusBadRequest)
-		return
-	}
+// // GET /metadata
+// func (b *Broker) metadataHandler(w http.ResponseWriter, r *http.Request) {
+// 	b.mu.Lock(); defer b.mu.Unlock()
+// 	resp := MetadataResponse{Topics: make(map[string]TopicMetadata)}
+// 	for t, owners := range b.ownership {
+// 		var parts []PartitionInfo
+// 		for i, o := range owners {
+// 			parts = append(parts, PartitionInfo{i, o})
+// 		}
+// 		resp.Topics[t] = TopicMetadata{parts}
+// 	}
+// 	w.Header().Set("Content-Type", "application/json")
+// 	json.NewEncoder(w).Encode(resp)
+// }
 
-	b.mu.Lock()
-	defer b.mu.Unlock()
+// // GET /list-topics
+// func (b *Broker) listTopicsHandler(w http.ResponseWriter, r *http.Request) {
+// 	b.mu.Lock(); defer b.mu.Unlock()
+// 	var ts []string
+// 	for t := range b.ownership {
+// 		ts = append(ts, t)
+// 	}
+// 	w.Header().Set("Content-Type", "application/json")
+// 	json.NewEncoder(w).Encode(map[string][]string{"topics": ts})
+// }
 
-	if _, exists := b.topics[req.Topic]; exists {
-		http.Error(w, "Topic already exists", http.StatusConflict)
-		return
-	}
+// // POST /produce
+// func (b *Broker) produceHandler(w http.ResponseWriter, r *http.Request) {
+// 	var req struct {
+// 		Topic     string `json:"topic"`
+// 		Partition int    `json:"partition"`
+// 		Message   string `json:"message"`
+// 	}
+// 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+// 		http.Error(w, "invalid", 400); return
+// 	}
+// 	b.mu.Lock()
+// 	owners, ok := b.ownership[req.Topic]
+// 	b.mu.Unlock()
+// 	if !ok || req.Partition<0 || req.Partition>=len(owners) {
+// 		http.Error(w,"unknown topic/partition",404); return
+// 	}
+// 	owner := owners[req.Partition]
+// 	if owner!=b.Address {
+// 		// forward
+// 		resp, err := http.Post("http://"+owner+"/produce","application/json",bytes.NewBuffer(mustJSON(req)))
+// 		if err!=nil { http.Error(w,"forward fail",500); return }
+// 		defer resp.Body.Close()
+// 		io.Copy(w,resp.Body)
+// 		return
+// 	}
+// 	// local
+// 	b.mu.Lock()
+// 	slice := &b.topics[req.Topic][req.Partition]
+// 	*slice = append(*slice, req.Message)
+// 	offset := len(*slice)-1
+// 	b.mu.Unlock()
+// 	fmt.Printf("[Broker %d] + topic=%s p=%d off=%d\n",b.ID,req.Topic,req.Partition,offset)
+// 	json.NewEncoder(w).Encode(map[string]int{"offset":offset})
+// }
 
-	b.topics[req.Topic] = []string{}
-	// Create empty log file for the topic
-	file, err := os.OpenFile(b.logDir+"/"+req.Topic+".log", os.O_CREATE|os.O_RDWR, 0644)
-	if err == nil {
-		file.Close()
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "created"})
-}
+// // GET /consume
+// func (b *Broker) consumeHandler(w http.ResponseWriter, r *http.Request) {
+// 	t := r.URL.Query().Get("topic")
+// 	p, _ := strconv.Atoi(r.URL.Query().Get("partition"))
+// 	o, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 
-// GET /list-topics
-func (b *Broker) listTopicsHandler(w http.ResponseWriter, r *http.Request) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	var topicNames []string
-	for topic := range b.topics {
-		topicNames = append(topicNames, topic)
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string][]string{
-		"topics": topicNames,
-	})
-}
+// 	b.mu.Lock()
+// 	owners, ok := b.ownership[t]
+// 	b.mu.Unlock()
+// 	if !ok || p<0 || p>=len(owners) {
+// 		http.Error(w,"unknown topic/partition",404); return
+// 	}
+// 	owner := owners[p]
+// 	if owner!=b.Address {
+// 		resp, err := http.Get(fmt.Sprintf(
+// 			"http://%s/consume?topic=%s&partition=%d&offset=%d",
+// 			owner,t,p,o))
+// 		if err!=nil { http.Error(w,"forward fail",500); return }
+// 		defer resp.Body.Close()
+// 		io.Copy(w,resp.Body)
+// 		return
+// 	}
+// 	// local
+// 	b.mu.Lock()
+// 	msgs := b.topics[t][p]
+// 	b.mu.Unlock()
+// 	if o<0||o>=len(msgs) {
+// 		w.WriteHeader(http.StatusNoContent)
+// 		return
+// 	}
+// 	fmt.Printf("[Broker %d] - topic=%s p=%d off=%d\n",b.ID,t,p,o)
+// 	json.NewEncoder(w).Encode(map[string]interface{}{"offset":o,"message":msgs[o]})
+// }
 
-// POST /register-schema
-func (b *Broker) registerSchemaHandler(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Topic  string `json:"topic"`
-		Schema string `json:"schema"` // raw JSON schema as string
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-	if req.Topic == "" || req.Schema == "" {
-		http.Error(w, "Topic and schema required", http.StatusBadRequest)
-		return
-	}
+// func mustJSON(v interface{}) []byte{
+// 	b,_:=json.Marshal(v)
+// 	return b
+// }
 
-	b.mu.Lock()
-	b.schemas[req.Topic] = req.Schema
-	b.mu.Unlock()
+// func runBroker(id,port int,peers []string){
+// 	b:=NewBroker(id,port,peers)
+// 	http.HandleFunc("/create-topic",b.createTopicHandler)
+// 	http.HandleFunc("/internal-create-topic",b.internalCreateTopicHandler)
+// 	http.HandleFunc("/metadata",b.metadataHandler)
+// 	http.HandleFunc("/list-topics",b.listTopicsHandler)
+// 	http.HandleFunc("/produce",b.produceHandler)
+// 	http.HandleFunc("/consume",b.consumeHandler)
+// 	fmt.Printf("Broker %d on :%d\n",id,port)
+// 	http.ListenAndServe(fmt.Sprintf(":%d",port),nil)
+// }
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "schema registered"})
-}
+// func runProducer(meta string){
+// 	r:=bufio.NewReader(os.Stdin)
+// 	fmt.Print("Enter topic: ")
+// 	t, _ := r.ReadString('\n'); t=strings.TrimSpace(t)
+// 	resp,_:=http.Get("http://"+meta+"/metadata")
+// 	var m MetadataResponse
+// 	json.NewDecoder(resp.Body).Decode(&m)
+// 	parts:=m.Topics[t].Partitions
+// 	fmt.Println("Partitions:")
+// 	for _,p:=range parts{fmt.Printf(" %d=>%s\n",p.Partition,p.Broker)}
+// 	fmt.Print("Partition?> ")
+// 	pl,_:=r.ReadString('\n'); p,_:=strconv.Atoi(strings.TrimSpace(pl))
+// 	fmt.Println("Type msg or 'exit'")
+// 	for {
+// 		fmt.Print("> ")
+// 		txt,_:=r.ReadString('\n'); txt=strings.TrimSpace(txt)
+// 		if txt=="exit"{break}
+// 		req:=map[string]interface{}{"topic":t,"partition":p,"message":txt}
+// 		resp,_:=http.Post("http://"+meta+"/produce","application/json",bytes.NewBuffer(mustJSON(req)))
+// 		var out map[string]int
+// 		json.NewDecoder(resp.Body).Decode(&out)
+// 		fmt.Println("offset:",out["offset"])
+// 		resp.Body.Close()
+// 	}
+// }
 
-// Broker
-func runBroker() {
-	killPort8080()
+// func runConsumer(meta string){
+// 	r:=bufio.NewReader(os.Stdin)
+// 	fmt.Print("Enter topic: ")
+// 	t,_:=r.ReadString('\n'); t=strings.TrimSpace(t)
+// 	resp,_:=http.Get("http://"+meta+"/metadata")
+// 	var m MetadataResponse
+// 	json.NewDecoder(resp.Body).Decode(&m)
+// 	parts:=m.Topics[t].Partitions
+// 	fmt.Println("Partitions:")
+// 	for _,p:=range parts{fmt.Printf(" %d=>%s\n",p.Partition,p.Broker)}
+// 	fmt.Print("Partition?> ")
+// 	pl,_:=r.ReadString('\n'); p,_:=strconv.Atoi(strings.TrimSpace(pl))
 
-	broker, err := NewBroker("logs")
-	if err != nil {
-		fmt.Println("Failed to start broker:", err)
-		return
-	}
-	http.HandleFunc("/produce", broker.produceHandler)
-	http.HandleFunc("/consume/stream", broker.consumeStreamHandler)
-	http.HandleFunc("/create-topic", broker.createTopicHandler)
-	http.HandleFunc("/list-topics", broker.listTopicsHandler)
-	http.HandleFunc("/register-schema", broker.registerSchemaHandler)
+// 	off:=0
+// 	for {
+// 		url:=fmt.Sprintf("http://%s/consume?topic=%s&partition=%d&offset=%d",meta,t,p,off)
+// 		resp,err:=http.Get(url)
+// 		if err!=nil{time.Sleep(time.Second);continue}
+// 		if resp.StatusCode==204{resp.Body.Close();time.Sleep(500*time.Millisecond);continue}
+// 		if resp.StatusCode!=200{resp.Body.Close();time.Sleep(time.Second);continue}
+// 		var d struct{Offset int;Message string}
+// 		json.NewDecoder(resp.Body).Decode(&d)
+// 		resp.Body.Close()
+// 		fmt.Printf("[Offset %d] %s\n",d.Offset,d.Message)
+// 		off++
+// 	}
+// }
 
-	fmt.Println("Broker running on :8080")
-	fmt.Println("Press Ctrl+C to stop.")
-	err = http.ListenAndServe(":8080", nil)
-	if err != nil {
-		fmt.Println("Failed to start HTTP server:", err)
-	}
-}
-
-// Producer
-func runProducer() {
-	fmt.Print("Enter topic: ")
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
-		return
-	}
-	topic := strings.TrimSpace(scanner.Text())
-	if topic == "" {
-		fmt.Println("No topic specified, exiting.")
-		return
-	}
-	fmt.Printf("Producer for topic '%s' - type messages, Enter to send, 'exit' to quit.\n", topic)
-	for {
-		fmt.Print("> ")
-		if !scanner.Scan() {
-			break
-		}
-		text := strings.TrimSpace(scanner.Text())
-		if text == "" {
-			continue
-		}
-		if text == "exit" {
-			break
-		}
-		reqBody, _ := json.Marshal(map[string]string{"topic": topic, "message": text})
-		resp, err := http.Post("http://localhost:8080/produce", "application/json", bytes.NewBuffer(reqBody))
-		if err != nil {
-			fmt.Println("Error:", err)
-			continue
-		}
-		var respData map[string]int
-		json.NewDecoder(resp.Body).Decode(&respData)
-		fmt.Println("Produced, offset:", respData["offset"])
-		resp.Body.Close()
-	}
-	fmt.Println("Producer exited.")
-}
-
-// Consumer
-func runConsumer() {
-	fmt.Print("Enter topic to subscribe: ")
-	scanner := bufio.NewScanner(os.Stdin)
-	if !scanner.Scan() {
-		return
-	}
-	topic := strings.TrimSpace(scanner.Text())
-	if topic == "" {
-		fmt.Println("No topic specified, exiting.")
-		return
-	}
-	offset := 0
-	fmt.Printf("Consumer for topic '%s' - Waiting for messages...\n", topic)
-	for {
-		resp, err := http.Get(fmt.Sprintf("http://localhost:8080/consume/stream?topic=%s&offset=%d", topic, offset))
-		if err != nil {
-			fmt.Println("Error:", err)
-			time.Sleep(time.Second)
-			continue
-		}
-		if resp.StatusCode != 200 {
-			if resp.StatusCode == 408 {
-				resp.Body.Close()
-				continue
-			}
-			b, _ := io.ReadAll(resp.Body)
-			fmt.Println("Broker error:", string(b))
-			resp.Body.Close()
-			time.Sleep(time.Second)
-			continue
-		}
-		var data struct {
-			Offset  int    `json:"offset"`
-			Message string `json:"message"`
-		}
-		err = json.NewDecoder(resp.Body).Decode(&data)
-		resp.Body.Close()
-		if err != nil {
-			fmt.Println("Decode error:", err)
-			time.Sleep(time.Second)
-			continue
-		}
-		fmt.Printf("[Offset %d] %s\n", data.Offset, data.Message)
-		offset++
-	}
-}
-
-
-func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Usage:")
-		fmt.Println("  go run kafka-lite.go broker     # Start broker server")
-		fmt.Println("  go run kafka-lite.go producer   # Start interactive producer")
-		fmt.Println("  go run kafka-lite.go consumer   # Start streaming consumer")
-		return
-	}
-	mode := os.Args[1]
-	switch mode {
-	case "broker":
-		runBroker()
-	case "producer":
-		runProducer()
-	case "consumer":
-		runConsumer()
-	default:
-		fmt.Println("Unknown mode:", mode)
-	}
-}
+// func main(){
+// 	if len(os.Args)<2{
+// 		fmt.Println("Usage:\n broker --id=1 --port=8080 --peers=a,b\n producer --meta=host:port\n consumer --meta=host:port")
+// 		return
+// 	}
+// 	switch os.Args[1]{
+// 	case "broker":
+// 		fs:=flag.NewFlagSet("broker",flag.ExitOnError)
+// 		id:=fs.Int("id",1,"broker id")
+// 		port:=fs.Int("port",8080,"port")
+// 		peers:=fs.String("peers","","comma sep peers")
+// 		fs.Parse(os.Args[2:])
+// 		pl:=[]string{}
+// 		if *peers!=""{pl=strings.Split(*peers,",")}
+// 		runBroker(*id,*port,pl)
+// 	case "producer":
+// 		fs:=flag.NewFlagSet("producer",flag.ExitOnError)
+// 		meta:=fs.String("meta","localhost:8080","meta")
+// 		fs.Parse(os.Args[2:])
+// 		runProducer(*meta)
+// 	case "consumer":
+// 		fs:=flag.NewFlagSet("consumer",flag.ExitOnError)
+// 		meta:=fs.String("meta","localhost:8080","meta")
+// 		fs.Parse(os.Args[2:])
+// 		runConsumer(*meta)
+// 	default:
+// 		fmt.Println("Unknown mode")
+// 	}
+// }
