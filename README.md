@@ -3,6 +3,8 @@
 [![Go](https://img.shields.io/badge/Go-1.19+-00ADD8?logo=go)](https://golang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+<img src="https://github.com/user-attachments/assets/77feb735-0232-40b6-a7f1-81a82629408d" alt="StreamNest" width="500"/>
+
 > 🚀 A minimal, Kafka-inspired clustered message streaming system in Go.
 > Launch a broker cluster with any number of brokers, create topics with any number of partitions, and interactively produce and consume messages—partition ownership is distributed across brokers just like in real Kafka!
 
