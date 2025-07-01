@@ -138,7 +138,7 @@ curl -X POST -H "Content-Type: application/json" \
   http://localhost:8080/produce
 ```
 
-_Producing a valid message with the without schema from CLI_
+_Producing a valid message without schema from CLI_
 ```sh
 ./kafka-lite-cluster producer --meta=localhost:8080
 ```
