@@ -16,7 +16,6 @@
 - **HTTP APIs:** Create topics, list topics, produce to and consume from any partition over HTTP.
 - **CLI Producer & Consumer:** Simple interactive clients for message publishing and consumption.
 - **Persistent Logs:** Each partition's data is stored on disk and survives restarts.
-- **Modular Go Code:** Idiomatic structure using `/cmd` and `/internal` directories.
 
 ---
 
