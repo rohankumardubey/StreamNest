@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"time"
-
 	"kafka-lite/internal/broker"
 	"kafka-lite/internal/client"
 )
@@ -32,9 +33,21 @@ func main() {
 
 		if *count > 1 {
 			var allPeers []string
+			var port_clean []int
 			for i := 0; i < *count; i++ {
 				allPeers = append(allPeers, fmt.Sprintf("localhost:%d", 8080+i))
 			}
+
+			for i := 0; i < *count; i++ {
+				port_clean = append(port_clean, 8080+i)
+			}
+
+			// Cleaning all ports before running
+			fmt.Println("=====================================")
+			fmt.Println("Killing the Zombie Instances on ports")
+			fmt.Println("=====================================")
+			freeClusterPorts(port_clean)
+
 			for i := 0; i < *count; i++ {
 				id := i + 1
 				port := 8080 + i
@@ -86,4 +99,20 @@ func main() {
 	default:
 		fmt.Println("Unknown mode")
 	}
+}
+
+// Iterate and terminate any process running on the ports
+func freeClusterPorts(port []int) {
+	for _, port := range port {
+		fmt.Println("killing anything on port ->", port)
+		var cmd *exec.Cmd
+		if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+			cmd = exec.Command("sh", "-c", "lsof -ti :"+strconv.Itoa(port)+" | xargs kill -9")
+		} else {
+			fmt.Printf("Automatic port cleanup not supported on %s\n", runtime.GOOS)
+			continue
+		}
+		cmd.Run() // ignore errors, may be no process
+	}
+	fmt.Println("=====================================")
 }

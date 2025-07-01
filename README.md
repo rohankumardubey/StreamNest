@@ -104,8 +104,18 @@ _Response Example:_
   }
 }
 ```
+### 5. Register Schema
 
-### 5. Produce Messages
+_Register a schema for a topic:_
+```sh
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"topic":"demo","schema":{...}}' \
+  http://localhost:8080/register-schema
+
+```
+_**Note: If you are registering a schema in Schema Registry, you must send the messages in the schema defined in schema registry format; otherwise the messages will be ignored by the consumer due to strict Schema Reistry validations.If you are unaware of the schea just ignore this step so no validations happen and broker & consumer accepts all messages.**_
+
+### 6. Produce Messages
 
 ```sh
 ./kafka-lite-cluster producer --meta=localhost:8080
@@ -130,7 +140,7 @@ offset: 1
 > exit
 ```
 
-### 6. Consume Messages
+### 7. Consume Messages
 
 ```sh
 ./kafka-lite-cluster consumer --meta=localhost:8080
