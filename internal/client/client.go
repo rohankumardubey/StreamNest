@@ -10,21 +10,28 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
 	"kafka-lite/internal/broker"
 )
 
+// Producer CLI: interactively send messages to a topic/partition
 func RunProducer(meta string) {
 	r := bufio.NewReader(os.Stdin)
 	fmt.Print("Enter topic: ")
 	topic, _ := r.ReadString('\n')
 	topic = strings.TrimSpace(topic)
 
+	// Fetch metadata to show partition/broker mapping
 	resp, _ := http.Get("http://" + meta + "/metadata")
 	var metaResp broker.MetadataResponse
 	json.NewDecoder(resp.Body).Decode(&metaResp)
 	resp.Body.Close()
 
 	parts := metaResp.Topics[topic].Partitions
+	if len(parts) == 0 {
+		fmt.Println("No such topic or no partitions. Did you create it?")
+		return
+	}
 	fmt.Println("Partitions:")
 	for _, p := range parts {
 		fmt.Printf("  %d on %s\n", p.Partition, p.Broker)
@@ -50,6 +57,7 @@ func RunProducer(meta string) {
 	}
 }
 
+// Consumer CLI: stream messages live from a topic/partition
 func RunConsumer(meta string) {
 	r := bufio.NewReader(os.Stdin)
 	fmt.Print("Enter topic: ")
@@ -62,6 +70,10 @@ func RunConsumer(meta string) {
 	resp.Body.Close()
 
 	parts := metaResp.Topics[topic].Partitions
+	if len(parts) == 0 {
+		fmt.Println("No such topic or no partitions. Did you create it?")
+		return
+	}
 	fmt.Println("Partitions:")
 	for _, p := range parts {
 		fmt.Printf("  %d on %s\n", p.Partition, p.Broker)
