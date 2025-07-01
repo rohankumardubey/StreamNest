@@ -45,9 +45,9 @@ func main() {
 
 			printStreamNestASCII()
 			// Cleaning all ports before running
-			fmt.Println("=========================================")
+			fmt.Println("=============================================================================")
 			fmt.Println("Killing the any Zombie Instances on ports")
-			fmt.Println("=========================================")
+			fmt.Println("=============================================================================")
 			freeClusterPorts(port_clean)
 
 			for i := 0; i < *count; i++ {
@@ -104,9 +104,9 @@ func main() {
 }
 
 // Iterate and terminate any process running on the ports
-func freeClusterPorts(port []int) {
-	for _, port := range port {
-		fmt.Println("killing anything on port ->", port)
+func freeClusterPorts(ports []int) {
+	for _, port := range ports {
+
 		var cmd *exec.Cmd
 		if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
 			cmd = exec.Command("sh", "-c", "lsof -ti :"+strconv.Itoa(port)+" | xargs kill -9")
@@ -116,7 +116,8 @@ func freeClusterPorts(port []int) {
 		}
 		cmd.Run() // ignore errors, may be no process
 	}
-	fmt.Println("=========================================")
+	fmt.Println("killing everything on ports ->", ports)
+	fmt.Println("=============================================================================")
 }
 
 func printStreamNestASCII() {

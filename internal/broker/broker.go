@@ -155,7 +155,7 @@ func (b *Broker) ProduceHandler(w http.ResponseWriter, r *http.Request) {
 		io.Copy(w, resp.Body)
 		return
 	}
-	
+
 	// Schema validation if exists
 	b.Mu.Lock()
 	schema, hasSchema := b.Schemas[req.Topic]
@@ -300,6 +300,6 @@ func RunBroker(id, port int, peers []string) {
 	http.HandleFunc("/produce", b.ProduceHandler)
 	http.HandleFunc("/consume", b.ConsumeHandler)
 	fmt.Printf("Broker %d running on :%d\n", id, port)
-	fmt.Println("=====================================")
+	fmt.Println("=============================================================================")
 	http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 }
