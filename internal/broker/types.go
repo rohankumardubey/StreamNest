@@ -1,6 +1,9 @@
 package broker
 
-import "sync"
+import (
+	"sync"
+	"github.com/xeipuuv/gojsonschema"
+)
 
 type PartitionInfo struct {
 	Partition int    `json:"partition"`
@@ -22,6 +25,7 @@ type Broker struct {
 	Port      int
 	Topics    map[string][][]string
 	Ownership map[string][]string
+	Schemas   map[string]*gojsonschema.Schema
 	Mu        sync.Mutex
 }
 

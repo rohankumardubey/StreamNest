@@ -7,10 +7,10 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-
+	"github.com/xeipuuv/gojsonschema"
 )
 
-// Helper: Marshal to JSON (exported so client can use)
+// Helper: Marshal to JSON
 func MustJSON(v interface{}) []byte {
 	b, _ := json.Marshal(v)
 	return b
@@ -155,6 +155,27 @@ func (b *Broker) ProduceHandler(w http.ResponseWriter, r *http.Request) {
 		io.Copy(w, resp.Body)
 		return
 	}
+	
+	// Schema validation if exists
+	b.Mu.Lock()
+	schema, hasSchema := b.Schemas[req.Topic]
+	b.Mu.Unlock()
+	if hasSchema {
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(req.Message), &parsed); err != nil {
+			http.Error(w, "message is not valid JSON for schema validation", 400)
+			return
+		}
+		result, err := schema.Validate(gojsonschema.NewGoLoader(parsed))
+		if err != nil {
+			http.Error(w, "schema validation error: "+err.Error(), 400)
+			return
+		}
+		if !result.Valid() {
+			http.Error(w, "schema validation failed: "+fmt.Sprint(result.Errors()), 400)
+			return
+		}
+	}
 	b.Mu.Lock()
 	slice := &b.Topics[req.Topic][req.Partition]
 	*slice = append(*slice, req.Message)
@@ -209,6 +230,38 @@ func (b *Broker) ConsumeHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// SCHEMA REGISTRY HANDLER
+func (b *Broker) RegisterSchemaHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Topic  string                 `json:"topic"`
+		Schema map[string]interface{} `json:"schema"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid", 400)
+		return
+	}
+	if req.Topic == "" || req.Schema == nil {
+		http.Error(w, "topic and schema required", 400)
+		return
+	}
+	schemaLoader := gojsonschema.NewGoLoader(req.Schema)
+	compiled, err := gojsonschema.NewSchema(schemaLoader)
+	if err != nil {
+		http.Error(w, "schema compilation error: "+err.Error(), 400)
+		return
+	}
+	b.Mu.Lock()
+	b.Schemas[req.Topic] = compiled
+	b.Mu.Unlock()
+	// Persist schema to disk
+	if err := SaveSchema(req.Topic, req.Schema); err != nil {
+		http.Error(w, "failed to persist schema: "+err.Error(), 500)
+		return
+	}
+	w.WriteHeader(200)
+	w.Write([]byte(`{"status":"schema registered"}`))
+}
+
 // Broker constructor
 func NewBroker(id, port int, peers []string) *Broker {
 	addr := fmt.Sprintf("localhost:%d", port)
@@ -219,12 +272,27 @@ func NewBroker(id, port int, peers []string) *Broker {
 		Port:      port,
 		Topics:    make(map[string][][]string),
 		Ownership: make(map[string][]string),
+		Schemas:   make(map[string]*gojsonschema.Schema),
 	}
 }
 
 // Main broker server
 func RunBroker(id, port int, peers []string) {
 	b := NewBroker(id, port, peers)
+
+	// Load schemas from disk
+	schemaMap, err := LoadAllSchemas()
+	if err == nil {
+		for topic, schemaObj := range schemaMap {
+			schemaLoader := gojsonschema.NewGoLoader(schemaObj)
+			compiled, err := gojsonschema.NewSchema(schemaLoader)
+			if err == nil {
+				b.Schemas[topic] = compiled
+			}
+		}
+	}
+
+	http.HandleFunc("/register-schema", b.RegisterSchemaHandler)
 	http.HandleFunc("/create-topic", b.CreateTopicHandler)
 	http.HandleFunc("/internal-create-topic", b.InternalCreateTopicHandler)
 	http.HandleFunc("/metadata", b.MetadataHandler)
@@ -232,5 +300,6 @@ func RunBroker(id, port int, peers []string) {
 	http.HandleFunc("/produce", b.ProduceHandler)
 	http.HandleFunc("/consume", b.ConsumeHandler)
 	fmt.Printf("Broker %d running on :%d\n", id, port)
+	fmt.Println("=====================================")
 	http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 }
