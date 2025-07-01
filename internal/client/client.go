@@ -10,8 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"kafka-lite/internal/broker"
+	"StreamNest/internal/broker"
 )
 
 // Producer CLI: interactively send messages to a topic/partition

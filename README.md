@@ -1,4 +1,4 @@
-# kafka-lite
+# StreamNest
 
 [![Go](https://img.shields.io/badge/Go-1.19+-00ADD8?logo=go)](https://golang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -28,10 +28,10 @@
 ### Clone & Build
 
 ```sh
-git clone https://github.com/rohankumardubey/kafka-lite.git
-cd kafka-lite
+git clone https://github.com/rohankumardubey/StreamNest.git
+cd StreamNest
 go mod tidy
-go build -o kafka-lite-cluster ./cmd/kafka-lite-cluster
+go build -o stream-nest-cluster ./cmd/stream-nest-cluster
 ```
 
 ### 1. Start Three Brokers
@@ -39,7 +39,7 @@ go build -o kafka-lite-cluster ./cmd/kafka-lite-cluster
 _Run this in one terminal (spawns all brokers as subprocesses):_
 
 ```sh
-./kafka-lite-cluster broker --count=3
+./stream-nest-cluster broker --count=3
 ```
 
 Each will print:
@@ -139,7 +139,7 @@ curl -X POST -H "Content-Type: application/json" \
 
 _Producing a valid message without schema from CLI_
 ```sh
-./kafka-lite-cluster producer --meta=localhost:8080
+./stream-nest-cluster producer --meta=localhost:8080
 ```
 
 ```
@@ -154,7 +154,7 @@ Partitions:
   6 on localhost:8080
 Partition?> 4
 Type messages (or 'exit'):
-> Hello Kafka-lite
+> Hello
 offset: 0
 > Another message
 offset: 1
@@ -164,7 +164,7 @@ offset: 1
 ### 7. Consume Messages
 
 ```sh
-./kafka-lite-cluster consumer --meta=localhost:8080
+./stream-nest-cluster consumer --meta=localhost:8080
 ```
 ```
 Enter topic: demo
@@ -177,7 +177,7 @@ Partitions:
   5 on localhost:8082
   6 on localhost:8080
 Partition?> 4
-[Offset 0] Hello Kafka-lite
+[Offset 0] Hello
 [Offset 1] Another message
 ```
 
@@ -187,7 +187,7 @@ Partition?> 4
 ```sh
 kafka-lite/
 ├── cmd/
-│   └── kafka-lite-cluster/
+│   └── stream-nest-cluster/
 │       └── main.go
 ├── internal/
 │   ├── broker/
