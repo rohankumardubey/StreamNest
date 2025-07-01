@@ -7,13 +7,25 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+
 )
 
+// Helper: Marshal to JSON (exported so client can use)
 func MustJSON(v interface{}) []byte {
 	b, _ := json.Marshal(v)
 	return b
 }
 
+// Round-robin assignment for topic partitions across brokers
+func AssignOwners(brokers []string, numPartitions int) []string {
+	owners := make([]string, numPartitions)
+	for i := 0; i < numPartitions; i++ {
+		owners[i] = brokers[i%len(brokers)]
+	}
+	return owners
+}
+
+// HTTP handler: create topic (external API)
 func (b *Broker) CreateTopicHandler(w http.ResponseWriter, r *http.Request) {
 	var req CreateTopicReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -25,12 +37,10 @@ func (b *Broker) CreateTopicHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	all := append([]string{b.Address}, b.Peers...)
-	owners := make([]string, req.NumPartitions)
-	for i := 0; i < req.NumPartitions; i++ {
-		owners[i] = all[i%len(all)]
-	}
+	owners := AssignOwners(all, req.NumPartitions)
 	b.CreateTopicWithOwners(req.Topic, owners)
 	fmt.Printf("[Broker %d] Created topic '%s' owners=%v\n", b.ID, req.Topic, owners)
+	// Propagate to peers
 	prop := CreateTopicReq{Topic: req.Topic, Owners: owners}
 	body := MustJSON(prop)
 	for _, peer := range b.Peers {
@@ -49,6 +59,7 @@ func (b *Broker) CreateTopicHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "created"})
 }
 
+// HTTP handler: create topic (internal propagation)
 func (b *Broker) InternalCreateTopicHandler(w http.ResponseWriter, r *http.Request) {
 	var req CreateTopicReq
 	json.NewDecoder(r.Body).Decode(&req)
@@ -61,6 +72,7 @@ func (b *Broker) InternalCreateTopicHandler(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(200)
 }
 
+// Assign topic/partitions to in-memory maps, and load persisted logs
 func (b *Broker) CreateTopicWithOwners(topic string, owners []string) {
 	b.Mu.Lock()
 	defer b.Mu.Unlock()
@@ -85,6 +97,7 @@ func (b *Broker) CreateTopicWithOwners(topic string, owners []string) {
 	b.Topics[topic] = partitions
 }
 
+// HTTP handler: expose topic/partition ownership (for clients)
 func (b *Broker) MetadataHandler(w http.ResponseWriter, r *http.Request) {
 	b.Mu.Lock()
 	defer b.Mu.Unlock()
@@ -100,6 +113,7 @@ func (b *Broker) MetadataHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out)
 }
 
+// HTTP handler: list topics
 func (b *Broker) ListTopicsHandler(w http.ResponseWriter, r *http.Request) {
 	b.Mu.Lock()
 	defer b.Mu.Unlock()
@@ -111,6 +125,7 @@ func (b *Broker) ListTopicsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string][]string{"topics": names})
 }
 
+// HTTP handler: produce message to a partition (forwards if not owner)
 func (b *Broker) ProduceHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Topic     string `json:"topic"`
@@ -153,6 +168,7 @@ func (b *Broker) ProduceHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]int{"offset": offset})
 }
 
+// HTTP handler: consume message from a partition/offset (forwards if not owner)
 func (b *Broker) ConsumeHandler(w http.ResponseWriter, r *http.Request) {
 	topic := r.URL.Query().Get("topic")
 	part, _ := strconv.Atoi(r.URL.Query().Get("partition"))
@@ -193,6 +209,7 @@ func (b *Broker) ConsumeHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Broker constructor
 func NewBroker(id, port int, peers []string) *Broker {
 	addr := fmt.Sprintf("localhost:%d", port)
 	return &Broker{
@@ -205,6 +222,7 @@ func NewBroker(id, port int, peers []string) *Broker {
 	}
 }
 
+// Main broker server
 func RunBroker(id, port int, peers []string) {
 	b := NewBroker(id, port, peers)
 	http.HandleFunc("/create-topic", b.CreateTopicHandler)

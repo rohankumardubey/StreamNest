@@ -4,31 +4,19 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 > 🚀 A minimal, Kafka-inspired clustered message streaming system in Go.
-> Spin up multiple brokers, create topics with partitions, and produce/consume messages routed to the correct broker—all via HTTP and a single binary.
+> Launch a broker cluster with any number of brokers, create topics with any number of partitions, and interactively produce and consume messages—partition ownership is distributed across brokers just like in real Kafka!
 
 ---
 
 ## ✨ Features
 
-- **Multi-Broker Clustering**
-  Start any number of brokers; each knows about its peers and partitions are round-robin–assigned.
-
-- **Partitioned Topics**
-  Create a topic with _N_ partitions; each partition has an exact owner broker.
-
-- **Synchronous Topic Propagation**
-  `/create-topic` computes the owner list once and propagates it to all brokers before returning.
-
-- **Produce & Consume APIs**
-  - `POST /produce` to append a message to a specific topic+partition
-  - `GET /consume` to fetch by offset (with automatic forwarding)
-
-- **Metadata Endpoints**
-  - `GET /metadata` to discover topic → partition → broker mapping
-  - `GET /list-topics` to list all registered topics
-
-- **Interactive CLI Clients**
-  Built-in `producer` and `consumer` modes prompt for topic/partition and stream messages.
+- **Multi-Broker Clustering:** Start N brokers at once, each automatically aware of peers.
+- **Any Partition Count:** Create topics with any number of partitions, independently of broker count.
+- **Round-Robin Assignment:** Partitions are spread evenly across brokers (round-robin).
+- **HTTP APIs:** Create topics, list topics, produce to and consume from any partition over HTTP.
+- **CLI Producer & Consumer:** Simple interactive clients for message publishing and consumption.
+- **Persistent Logs:** Each partition's data is stored on disk and survives restarts.
+- **Modular Go Code:** Idiomatic structure using `/cmd` and `/internal` directories.
 
 ---
 
@@ -45,12 +33,11 @@ git clone https://github.com/rohankumardubey/kafka-lite.git
 cd kafka-lite
 go mod tidy
 go build -o kafka-lite-cluster ./cmd/kafka-lite-cluster
-
 ```
 
 ### 1. Start Three Brokers
 
-_Open terminal and run:_
+_Run this in one terminal (spawns all brokers as subprocesses):_
 
 ```sh
 # Terminal 1
@@ -62,16 +49,19 @@ Each will print:
 Starting broker 1 on port 8080 with peers: localhost:8081,localhost:8082
 Broker 1 running on :8080
 Starting broker 2 on port 8081 with peers: localhost:8080,localhost:8082
-...
+Broker 2 running on :8081
+Starting broker 3 on port 8082 with peers: localhost:8080,localhost:8081
+Broker 3 running on :8082
+
 ```
 
-### 2. Create a Topic
+### 2. Create a Topic (with Any Partition Count!)
 
-_Send a single request to any broker (e.g. port 8080):_
+_In a second terminal, run:_
 
 ```sh
 curl -X POST -H "Content-Type: application/json" \
-  -d '{"topic":"test","partitions":3}' \
+  -d '{"topic":"demo","partitions":7}' \
   http://localhost:8080/create-topic
 ```
 
@@ -101,11 +91,17 @@ _Response Example:_
 ```json
 {
   "topic_partitions": {
-    "test": [
-      {"partition":0,"broker":"localhost:8080"},
-      {"partition":1,"broker":"localhost:8081"},
-      {"partition":2,"broker":"localhost:8082"}
-    ]
+    "demo": {
+      "partitions": [
+        {"partition":0,"broker":"localhost:8080"},
+        {"partition":1,"broker":"localhost:8081"},
+        {"partition":2,"broker":"localhost:8082"},
+        {"partition":3,"broker":"localhost:8080"},
+        {"partition":4,"broker":"localhost:8081"},
+        {"partition":5,"broker":"localhost:8082"},
+        {"partition":6,"broker":"localhost:8080"}
+      ]
+    }
   }
 }
 ```
@@ -117,16 +113,20 @@ _Response Example:_
 ```
 
 ```
-Enter topic: test
+Enter topic: demo
 Partitions:
   0 on localhost:8080
   1 on localhost:8081
   2 on localhost:8082
-Partition?> 1
+  3 on localhost:8080
+  4 on localhost:8081
+  5 on localhost:8082
+  6 on localhost:8080
+Partition?> 4
 Type messages (or 'exit'):
-> Hello World
+> Hello Kafka-lite
 offset: 0
-> hi
+> Another message
 offset: 1
 > exit
 ```
@@ -137,14 +137,18 @@ offset: 1
 ./kafka-lite-cluster consumer --meta=localhost:8080
 ```
 ```
-Enter topic: test
+Enter topic: demo
 Partitions:
   0 on localhost:8080
   1 on localhost:8081
   2 on localhost:8082
-Partition?> 1
-[Offset 0] Hello World
-[Offset 1] hi
+  3 on localhost:8080
+  4 on localhost:8081
+  5 on localhost:8082
+  6 on localhost:8080
+Partition?> 4
+[Offset 0] Hello Kafka-lite
+[Offset 1] Another message
 ```
 
 ---
@@ -171,7 +175,7 @@ kafka-lite/
 
 ## 🏗️ Roadmap
 
-- **Disk Persistence** – survive broker restarts
+- **Disk Persistence** – Disk persistence metadata (for seamless restarts)
 - **Replication & Failover** – mirror partitions across brokers
 - **Consumer Groups** – manage offsets per group
 - **Docker Compose** – launch cluster with a single command
