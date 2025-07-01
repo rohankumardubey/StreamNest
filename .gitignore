@@ -23,5 +23,5 @@ go.work.sum
 
 # env file
 .env
-kafka-lite-cluster
 /data
+stream-nest-cluster
