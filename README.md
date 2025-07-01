@@ -39,7 +39,6 @@ go build -o kafka-lite-cluster ./cmd/kafka-lite-cluster
 _Run this in one terminal (spawns all brokers as subprocesses):_
 
 ```sh
-# Terminal 1
 ./kafka-lite-cluster broker --count=3
 ```
 
