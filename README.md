@@ -126,6 +126,19 @@ _**Note: If you are registering a schema in Schema Registry, you must send the m
 
 ### 6. Produce Messages
 
+_Producing a valid message with the schema from /produce endpoint_
+
+```sh
+curl -X POST -H "Content-Type: application/json" \
+  -d '{
+    "topic":"users",
+    "partition":0,
+    "message":"{\"name\":\"Alice\",\"age\":30}"
+  }' \
+  http://localhost:8080/produce
+```
+
+_Producing a valid message with the without schema from CLI_
 ```sh
 ./kafka-lite-cluster producer --meta=localhost:8080
 ```
