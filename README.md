@@ -109,11 +109,20 @@ _Response Example:_
 _Register a schema for a topic:_
 ```sh
 curl -X POST -H "Content-Type: application/json" \
-  -d '{"topic":"demo","schema":{...}}' \
+  -d '{
+    "topic":"users",
+    "schema":{
+      "type":"object",
+      "properties":{
+        "name":{"type":"string"},
+        "age":{"type":"number"}
+      },
+      "required":["name","age"]
+    }
+  }' \
   http://localhost:8080/register-schema
-
 ```
-_**Note: If you are registering a schema in Schema Registry, you must send the messages in the schema defined in schema registry format; otherwise the messages will be ignored by the consumer due to strict Schema Reistry validations.If you are unaware of the schea just ignore this step so no validations happen and broker & consumer accepts all messages.**_
+_**Note: If you are registering a schema in Schema Registry, you must send the messages in the schema defined in schema registry format; otherwise the messages will be ignored by the consumer due to strict Schema Registry validations.If you are unaware of the schema just ignore this step so no validations happen and broker & consumer accepts all messages.**_
 
 ### 6. Produce Messages
 
@@ -184,7 +193,6 @@ kafka-lite/
 
 ## 🏗️ Roadmap
 
-- **Disk Persistence** – Disk persistence metadata (for seamless restarts)
 - **Replication & Failover** – mirror partitions across brokers
 - **Consumer Groups** – manage offsets per group
 - **Docker Compose** – launch cluster with a single command
