@@ -1,4 +1,4 @@
-# kafka-lite
+# kafka-lite-cluster
 
 [![Go](https://img.shields.io/badge/Go-1.19+-00ADD8?logo=go)](https://golang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -41,31 +41,28 @@
 ### Clone & Build
 
 ```sh
-git clone https://github.com/rohankumardubey/kafka-lite-cluster.git
-cd kafka-lite-cluster
-go mod init kafka-lite-cluster
+git clone https://github.com/rohankumardubey/kafka-lite.git
+cd kafka-lite
 go mod tidy
-go build -o kafka-lite-cluster kafka-lite-cluster.go
+go build -o kafka-lite-cluster ./cmd/kafka-lite-cluster
+
 ```
 
 ### 1. Start Three Brokers
 
-_Open three terminals and run:_
+_Open terminal and run:_
 
 ```sh
 # Terminal 1
-./kafka-lite-cluster broker --id=1 --port=8080 --peers=localhost:8081,localhost:8082
-
-# Terminal 2
-./kafka-lite-cluster broker --id=2 --port=8081 --peers=localhost:8080,localhost:8082
-
-# Terminal 3
-./kafka-lite-cluster broker --id=3 --port=8082 --peers=localhost:8080,localhost:8081
+./kafka-lite-cluster broker --count=3
 ```
 
 Each will print:
 ```
-Broker <ID> running on :<port>
+Starting broker 1 on port 8080 with peers: localhost:8081,localhost:8082
+Broker 1 running on :8080
+Starting broker 2 on port 8081 with peers: localhost:8080,localhost:8082
+...
 ```
 
 ### 2. Create a Topic
@@ -129,7 +126,7 @@ Partition?> 1
 Type messages (or 'exit'):
 > Hello World
 offset: 0
-> Another message
+> hi
 offset: 1
 > exit
 ```
@@ -139,7 +136,6 @@ offset: 1
 ```sh
 ./kafka-lite-cluster consumer --meta=localhost:8080
 ```
-
 ```
 Enter topic: test
 Partitions:
@@ -148,7 +144,27 @@ Partitions:
   2 on localhost:8082
 Partition?> 1
 [Offset 0] Hello World
-[Offset 1] Another message
+[Offset 1] hi
+```
+
+---
+
+## 📁 Project Layout
+```sh
+kafka-lite/
+├── cmd/
+│   └── kafka-lite-cluster/
+│       └── main.go
+├── internal/
+│   ├── broker/
+│   │   ├── types.go
+│   │   ├── storage.go
+│   │   └── broker.go
+│   └── client/
+│       └── client.go
+├── data/          # runtime logs: <topic>_<partition>.log
+├── go.mod
+└── README.md
 ```
 
 ---
