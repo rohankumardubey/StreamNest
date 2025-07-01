@@ -1,4 +1,4 @@
-# kafka-lite-cluster
+# kafka-lite
 
 [![Go](https://img.shields.io/badge/Go-1.19+-00ADD8?logo=go)](https://golang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
