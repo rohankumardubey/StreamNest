@@ -95,6 +95,9 @@ func (b *Broker) CreateTopicWithOwners(topic string, owners []string) {
 		}
 	}
 	b.Topics[topic] = partitions
+
+	// Persist topic metadata
+	SaveTopicMetadata(topic, owners)
 }
 
 // HTTP handler: expose topic/partition ownership (for clients)
@@ -289,6 +292,14 @@ func RunBroker(id, port int, peers []string) {
 			if err == nil {
 				b.Schemas[topic] = compiled
 			}
+		}
+	}
+
+	// Load topics from disk
+	topicMetas, err := LoadAllTopicMetadata()
+	if err == nil {
+		for topic, owners := range topicMetas {
+			b.CreateTopicWithOwners(topic, owners)
 		}
 	}
 
