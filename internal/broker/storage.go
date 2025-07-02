@@ -72,11 +72,11 @@ func SaveTopicMetadata(topic string, owners []string) error {
 
 // Load all topic metadata from gzip-compressed files
 func LoadAllTopicMetadata() (map[string][]string, error) {
-	metas := make(map[string][]string)
+	mapper := make(map[string][]string)
 	files, err := ioutil.ReadDir("data")
 	if err != nil {
 		if os.IsNotExist(err) {
-			return metas, nil
+			return mapper, nil
 		}
 		return nil, err
 	}
@@ -103,10 +103,10 @@ func LoadAllTopicMetadata() (map[string][]string, error) {
 			if err := json.Unmarshal(uncompressed, &meta); err != nil {
 				continue
 			}
-			metas[meta.Topic] = meta.Owners
+			mapper[meta.Topic] = meta.Owners
 		}
 	}
-	return metas, nil
+	return mapper, nil
 }
 
 
