@@ -189,7 +189,7 @@ Partition?> 4
 
 ## 📁 Project Layout
 ```sh
-kafka-lite/
+StreamNest/
 ├── cmd/
 │   └── stream-nest-cluster/
 │       └── main.go
