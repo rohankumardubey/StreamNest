@@ -113,7 +113,7 @@ _Register a schema for a topic:_
 ```sh
 curl -X POST -H "Content-Type: application/json" \
   -d '{
-    "topic":"users",
+    "topic":"demo",
     "schema":{
       "type":"object",
       "properties":{
@@ -134,7 +134,7 @@ _Producing a valid message with the schema from /produce endpoint_
 ```sh
 curl -X POST -H "Content-Type: application/json" \
   -d '{
-    "topic":"users",
+    "topic":"demo",
     "partition":0,
     "message":"{\"name\":\"Alice\",\"age\":30}"
   }' \
