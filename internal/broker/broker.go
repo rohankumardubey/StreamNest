@@ -8,7 +8,22 @@ import (
 	"net/http"
 	"strconv"
 	"github.com/xeipuuv/gojsonschema"
+	"hash/fnv"
 )
+
+var req struct {
+	Topic     string `json:"topic"`
+	Key       string `json:"key,omitempty"`       // Optional
+	Message   string `json:"message"`
+	Partition *int   `json:"partition,omitempty"` // Optional, now a pointer!
+}
+
+
+func hashString(s string) int {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return int(h.Sum32())
+}
 
 // Helper: Marshal to JSON
 func MustJSON(v interface{}) []byte {
@@ -132,7 +147,8 @@ func (b *Broker) ListTopicsHandler(w http.ResponseWriter, r *http.Request) {
 func (b *Broker) ProduceHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Topic     string `json:"topic"`
-		Partition int    `json:"partition"`
+		Key       string `json:"key,omitempty"`            // Optional
+		Partition *int   `json:"partition,omitempty"`      // Optional, pointer!
 		Message   string `json:"message"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -141,13 +157,36 @@ func (b *Broker) ProduceHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	b.Mu.Lock()
 	owners, ok := b.Ownership[req.Topic]
+	numPartitions := len(owners)
 	b.Mu.Unlock()
-	if !ok || req.Partition < 0 || req.Partition >= len(owners) {
-		http.Error(w, "unknown topic/partition", 404)
+	if !ok || numPartitions == 0 {
+		http.Error(w, "unknown topic", 404)
 		return
 	}
-	owner := owners[req.Partition]
+
+	// Partition selection logic
+	var partition int
+	if req.Partition != nil {
+		partition = *req.Partition
+		if partition < 0 || partition >= numPartitions {
+			http.Error(w, "invalid partition", 400)
+			return
+		}
+	} else if req.Key != "" {
+		partition = hashString(req.Key) % numPartitions
+	} else {
+		// Round robin
+		b.Mu.Lock()
+		partition = b.RoundRobin[req.Topic]
+		b.RoundRobin[req.Topic] = (b.RoundRobin[req.Topic] + 1) % numPartitions
+		b.Mu.Unlock()
+	}
+
+	b.Mu.Lock()
+	owner := owners[partition]
+	b.Mu.Unlock()
 	if owner != b.Address {
+		req.Partition = &partition // ensure correct partition is forwarded
 		resp, err := http.Post("http://"+owner+"/produce", "application/json", bytes.NewBuffer(MustJSON(req)))
 		if err != nil {
 			http.Error(w, "forward fail", 500)
@@ -179,15 +218,16 @@ func (b *Broker) ProduceHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
 	b.Mu.Lock()
-	slice := &b.Topics[req.Topic][req.Partition]
+	slice := &b.Topics[req.Topic][partition]
 	*slice = append(*slice, req.Message)
 	offset := len(*slice) - 1
 	b.Mu.Unlock()
-	if err := AppendPartitionLog(req.Topic, req.Partition, req.Message); err != nil {
+	if err := AppendPartitionLog(req.Topic, partition, req.Message); err != nil {
 		fmt.Printf("[Broker %d] Error writing log: %v\n", b.ID, err)
 	}
-	fmt.Printf("[Broker %d] + topic=%s p=%d off=%d\n", b.ID, req.Topic, req.Partition, offset)
+	fmt.Printf("[Broker %d] + topic=%s p=%d off=%d\n", b.ID, req.Topic, partition, offset)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]int{"offset": offset})
 }
@@ -276,6 +316,7 @@ func NewBroker(id, port int, peers []string) *Broker {
 		Topics:    make(map[string][][]string),
 		Ownership: make(map[string][]string),
 		Schemas:   make(map[string]*gojsonschema.Schema),
+		RoundRobin: make(map[string]int),
 	}
 }
 

@@ -129,7 +129,9 @@ _**Note: If you are registering a schema in Schema Registry, you must send the m
 
 ### 6. Produce Messages
 
-_Producing a valid message with the schema from /produce endpoint_
+_**Producing a valid message with the schema from /produce endpoint**_
+
+_(if you plan to specify the partition value manually without key then it will send the message to specified partition)_
 
 ```sh
 curl -X POST -H "Content-Type: application/json" \
@@ -141,10 +143,36 @@ curl -X POST -H "Content-Type: application/json" \
   http://localhost:8080/produce
 ```
 
+_(if no partition value is specified and key is given then it will calculate partition based on hash function)_
+
+
+```sh
+curl -X POST -H "Content-Type: application/json" \
+  -d '{
+    "topic":"demo",
+    "key": "id1",
+    "message":"{\"name\":\"Alice\",\"age\":30}"
+  }' \
+  http://localhost:8080/produce
+```
+
+_(if no partition value and no key is given then it will follow the round robin strategy)_
+
+```sh
+curl -X POST -H "Content-Type: application/json" \
+  -d '{
+    "topic":"demo",
+    "message":"{\"name\":\"Alice\",\"age\":30}"
+  }' \
+  http://localhost:8080/produce
+```
+
+
 _Producing a valid message without schema from CLI_
 ```sh
 ./stream-nest-cluster producer --meta=localhost:8080
 ```
+_Response_
 
 ```
 Enter topic: demo
@@ -170,6 +198,8 @@ offset: 1
 ```sh
 ./stream-nest-cluster consumer --meta=localhost:8080
 ```
+
+_Response_
 ```
 Enter topic: demo
 Partitions:
