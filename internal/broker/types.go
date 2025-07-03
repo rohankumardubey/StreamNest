@@ -26,6 +26,7 @@ type Broker struct {
 	Topics    map[string][][]string
 	Ownership map[string][]string
 	Schemas   map[string]*gojsonschema.Schema
+	RoundRobin map[string]int 					// For round robin per topic
 	Mu        sync.Mutex
 }
 
