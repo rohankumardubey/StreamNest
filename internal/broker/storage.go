@@ -138,45 +138,59 @@ func LoadPartitionLog(topic string, partition int) ([]string, error) {
 	return messages, nil
 }
 
-
-// SCHEMA REGISTRY
-
+// Save schema to disk as gzip-compressed JSON
 func SaveSchema(topic string, schema map[string]interface{}) error {
 	if err := os.MkdirAll("data", 0755); err != nil {
 		return err
 	}
-	fpath := filepath.Join("data", fmt.Sprintf("%s.schema.json", topic))
+	fpath := filepath.Join("data", topic+".schema.json.gz")
 	b, err := json.MarshalIndent(schema, "", "  ")
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(fpath, b, 0644)
+
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(b); err != nil {
+		return err
+	}
+	gz.Close()
+
+	return os.WriteFile(fpath, buf.Bytes(), 0644)
 }
 
-// Loading all Schemas
+// Load all schemas from gzip-compressed files
 func LoadAllSchemas() (map[string]map[string]interface{}, error) {
 	schemas := make(map[string]map[string]interface{})
 	files, err := ioutil.ReadDir("data")
 	if err != nil {
 		if os.IsNotExist(err) {
-			return schemas, nil // No schemas yet
+			return schemas, nil
 		}
 		return nil, err
 	}
 	for _, f := range files {
-		if !f.IsDir() && filepath.Ext(f.Name()) == ".json" && len(f.Name()) > len(".schema.json") {
-			if len(f.Name()) > len(".schema.json") && f.Name()[len(f.Name())-len(".schema.json"):] == ".schema.json" {
-				topic := f.Name()[:len(f.Name())-len(".schema.json")]
-				raw, err := ioutil.ReadFile(filepath.Join("data", f.Name()))
-				if err != nil {
-					continue
-				}
-				var schema map[string]interface{}
-				if err := json.Unmarshal(raw, &schema); err != nil {
-					continue
-				}
-				schemas[topic] = schema
+		name := f.Name()
+		if !f.IsDir() && strings.HasSuffix(name, ".schema.json.gz") {
+			raw, err := os.ReadFile(filepath.Join("data", name))
+			if err != nil {
+				continue
 			}
+			gr, err := gzip.NewReader(bytes.NewReader(raw))
+			if err != nil {
+				continue
+			}
+			uncompressed, err := io.ReadAll(gr)
+			gr.Close()
+			if err != nil {
+				continue
+			}
+			var schema map[string]interface{}
+			if err := json.Unmarshal(uncompressed, &schema); err != nil {
+				continue
+			}
+			topic := strings.TrimSuffix(name, ".schema.json.gz")
+			schemas[topic] = schema
 		}
 	}
 	return schemas, nil
