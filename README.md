@@ -215,6 +215,18 @@ Partition?> 4
 [Offset 1] Another message
 ```
 
+### 8. Monitor Metrics
+
+Each broker exposes Prometheus metrics on `/metrics`. Metrics are registered automatically when a broker starts.
+
+Query a broker's metrics with curl:
+
+```sh
+curl http://localhost:8080/metrics
+```
+
+You should see counters such as `streamnest_messages_produced_total` and `streamnest_messages_consumed_total` that increment as you produce and consume messages.
+
 ---
 
 ## 📁 Project Layout

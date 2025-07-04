@@ -7,17 +7,18 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/xeipuuv/gojsonschema"
 	"hash/fnv"
 )
 
 var req struct {
 	Topic     string `json:"topic"`
-	Key       string `json:"key,omitempty"`       // Optional
+	Key       string `json:"key,omitempty"` // Optional
 	Message   string `json:"message"`
 	Partition *int   `json:"partition,omitempty"` // Optional, now a pointer!
 }
-
 
 func hashString(s string) int {
 	h := fnv.New32a()
@@ -147,8 +148,8 @@ func (b *Broker) ListTopicsHandler(w http.ResponseWriter, r *http.Request) {
 func (b *Broker) ProduceHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Topic     string `json:"topic"`
-		Key       string `json:"key,omitempty"`            // Optional
-		Partition *int   `json:"partition,omitempty"`      // Optional, pointer!
+		Key       string `json:"key,omitempty"`       // Optional
+		Partition *int   `json:"partition,omitempty"` // Optional, pointer!
 		Message   string `json:"message"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -228,6 +229,7 @@ func (b *Broker) ProduceHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("[Broker %d] Error writing log: %v\n", b.ID, err)
 	}
 	fmt.Printf("[Broker %d] + topic=%s p=%d off=%d\n", b.ID, req.Topic, partition, offset)
+	IncProduced()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]int{"offset": offset})
 }
@@ -266,6 +268,7 @@ func (b *Broker) ConsumeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Printf("[Broker %d] - topic=%s p=%d off=%d\n", b.ID, topic, part, off)
+	IncConsumed()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"offset":  off,
@@ -308,14 +311,15 @@ func (b *Broker) RegisterSchemaHandler(w http.ResponseWriter, r *http.Request) {
 // Broker constructor
 func NewBroker(id, port int, peers []string) *Broker {
 	addr := fmt.Sprintf("localhost:%d", port)
+	RegisterMetrics()
 	return &Broker{
-		ID:        id,
-		Address:   addr,
-		Peers:     peers,
-		Port:      port,
-		Topics:    make(map[string][][]string),
-		Ownership: make(map[string][]string),
-		Schemas:   make(map[string]*gojsonschema.Schema),
+		ID:         id,
+		Address:    addr,
+		Peers:      peers,
+		Port:       port,
+		Topics:     make(map[string][][]string),
+		Ownership:  make(map[string][]string),
+		Schemas:    make(map[string]*gojsonschema.Schema),
 		RoundRobin: make(map[string]int),
 	}
 }
@@ -351,6 +355,7 @@ func RunBroker(id, port int, peers []string) {
 	http.HandleFunc("/list-topics", b.ListTopicsHandler)
 	http.HandleFunc("/produce", b.ProduceHandler)
 	http.HandleFunc("/consume", b.ConsumeHandler)
+	http.Handle("/metrics", promhttp.Handler())
 	fmt.Printf("Broker %d running on :%d\n", id, port)
 	fmt.Println("=============================================================================")
 	http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
